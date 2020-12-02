@@ -1,0 +1,125 @@
+---
+layout: post
+title: OpenSSL for CSRs
+date: 2020-08-31 11:11:55.000000000 -04:00
+type: post
+parent_id: '0'
+published: true
+password: ''
+status: publish
+categories:
+- CLI
+- Consulting
+tags: []
+meta:
+  _thumbnail_id: '134'
+  _publicize_job_id: '48318724552'
+  timeline_notification: '1598886718'
+permalink: "/2020/08/31/openssl-for-csrs/"
+excerpt: Photo by JOSHUA COLEMAN on Unsplash
+---
+
+<p>In the age of Cloud-anything, there's a managed service for everything. And that includes all aspects of PKI (public key infrastructure). PKI ensure that people get the <a href="https://support.google.com/chrome/answer/95617?hl=en">lock icon</a> (indicating a secure connection) when visiting your site. If the hosted site is completely within a single Cloud environment or some other PaaS you can take advantage of such managed services. But in IT/Software consulting there will probably be some divide in the governance of PKI material, and you may be required to submit a CSR, Certificate Signing Request. Here are my notes and <a href="https://www.openssl.org/">openSSL</a> commands with how I've managed this in a few projects recently.</p>
+
+
+<p><strong>Warning</strong>: I've tried to keep things generalized, but guaranteed there will be differences in the specifics of your situation.</p>
+
+
+<p>But before I begin, let's make sure this page is for you. Here's our <a href="https://www.atlassian.com/agile/project-management/user-stories">User Story</a>:</p>
+
+<p><!-- wp:quote --></p>
+<blockquote class="wp-block-quote"><p><strong>As an</strong> extremely diligent and cybersecurity minded infrastructure engineer/ninja, <strong>I want</strong> to submit a Certificate Signing Request (CSR) to my client (who owns the domain big-client.com), <strong>so that</strong> the client can return a certificate to me with which I can configure my AWS ELB (or other TLS termination) to offer secure https on the software I have been contracted to build and host for said client.</p>
+<p><cite>an Extremely Diligent and Cybersecurity Minded Infrastructure Engineer/Ninja</cite></p></blockquote>
+<p><!-- /wp:quote --></p>
+
+<p>First, let's start with all the files we'll handle...</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>template.cnf     // template for the input into openSSL
+big-client.cnf   // same file as above, but completed
+
+# output files
+big-client.key
+big-client.csr   // &lt;--provide this to domain owner / client
+
+# Certificates returned from domain owner
+# (roughly named here: root, intermediate, 'leaf')
+trustedRoot.crt
+intermediate.crt
+big-client_ai.crt</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>First, we use <code>template.cnf</code> to create <code>big-client.cnf</code>. The info below will need to exactly match what your client requires for their PKI processes. The <code>commonName</code> is the most important part, it's what domain you are going to protect. If your client supports <a href="https://www.entrustdatacard.com/blog/2019/march/what-is-a-san-and-how-is-it-used">Subject Alternate Names (SAN)</a>.  You can add them as separate lines in the 'alt_names' section.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ cat template.cnf
+
+&#091; req ]
+default_bits       = 4096
+distinguished_name = req_distinguished_name
+req_extensions     = req_ext
+default_md         = sha256
+prompt             = no
+&#091; req_distinguished_name ]
+countryName           = US
+stateOrProvinceName   = 
+localityName          = 
+organizationName      = 
+commonName            = 
+&#091; req_ext ]
+subjectAltName = @alt_names
+&#091;alt_names]
+DNS.1   = 
+DNS.2   =
+DNS.3   =
+
+$ cat big-client.cnf
+
+&#091; req ]
+default_bits       = 4096
+distinguished_name = req_distinguished_name
+req_extensions     = req_ext
+default_md         = sha256
+prompt             = no
+&#091; req_distinguished_name ]
+countryName           = US
+stateOrProvinceName   = Massachusetts
+localityName          = Amherst
+organizationName      = Big Client Inc.
+commonName            = big-client.ai
+&#091; req_ext ]
+subjectAltName = @alt_names
+&#091;alt_names]
+DNS.1   = api.big-client.ai
+DNS.2   =
+DNS.3   =</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>Great, from this <code>big-client.cnf</code> let's build the CSR!</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ openssl req -new -newkey rsa:4096 -config big-client.cnf -reqexts req_ext -keyout big-client.key -out big-client.csr
+
+# (we're creating a 'newkey' here, but with openSSL you can specify an existing key)
+
+# part-way through this invocation, you'll be asked for a passphrase, you could leave this blank.  If you enter a non-empty passphrase, you need to remember it!
+
+# outputs...
+big-client.key
+big-client.csr</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>It's a busy Monday, your fingers are flying on the CLI and you've lost track of all these CSRs for multiple clients.  Here's a command to inspect the content of a CSR:</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ openssl req -text -noout -verify -in big-client.csr</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>Provide the <code>big-client.csr</code> to the client.  (You should not provide the <code>big-client.key</code>.)  The cybersecurity ninjas at your Big Client should then perform some black-box awesomeness to turn this <code>.csr</code> into a certificate, and return to you a root, intermediate, and 'leaf' certificate (to form the <a href="https://aboutssl.org/root-certificates-vs-intermediate-certificates/">chain of trust</a>).  Before you configure these certificates (and <code>big-client.key</code>) into your infrastructure, check the 'leaf' certificate that it matches the <code>commonName</code> and <code>alt_names</code>:</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ openssl x509 -in big-client-leaf.crt -text -noout</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>OpenSSL is a very very deep space.  Just a reminder, this is a very narrow example of commands.  Be sure to dig deeper into your use-case, requirements, and then any other needed flags of the <a href="https://www.openssl.org/docs/man1.1.1/man1/">openSSL tool</a> to make sure you offer secure web services to your own and clients' customers.</p>
+

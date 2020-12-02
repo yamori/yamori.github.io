@@ -1,0 +1,48 @@
+---
+layout: post
+title: WGET
+date: 2020-06-04 12:22:00.000000000 -04:00
+type: post
+parent_id: '0'
+published: true
+password: ''
+status: publish
+categories:
+- CLI
+tags: []
+meta:
+  timeline_notification: '1592238176'
+  _rest_api_published: '1'
+  _rest_api_client_id: "-1"
+  _publicize_job_id: '45477596100'
+  _wp_old_date: '2020-06-15'
+author:
+permalink: "/2020/06/04/wget/"
+---
+
+<p>WGET, an indispensable tool for working with the web.  Below are a few examples extracted from my CLI cheat-sheet, with explanation on syntax.</p>
+
+
+<h3>WGET &amp; CURL: equivalent examples</h3>
+<pre class="wp-block-code"><code>wget -O index.html www.exampledomain.com
+
+# The -O (upper case) is optional, and if omitted it usually saves as the index.html for the website.</code></pre>
+<pre class="wp-block-code"><code>curl -L www.exampledomain.com &gt; index.html
+
+# The -L follows all redirects before returning data.
+# Curl normally spits out to the CLI, but the '&gt;' redirects the named file.  Beware '&gt;' overwrites, sometimes useful is '&gt;&gt;' to append.</code></pre>
+<p><!-- /wp:code --></p>
+
+<h3>Debugging</h3>
+<p>Sometimes it's really useful to be able to grab a website in its entirety.</p>
+<pre class="wp-block-preformatted">wget -pHk www.exampledomain.com
+
+<strong>-p</strong>  fetches all accompanying assets (images, css, js) to view the site
+<strong>-H</strong>  enables recursive run, to fetch assets from other hosts
+<strong>-k</strong>  after downloading, this will change all asset links to local/relative</pre>
+<p><!-- /wp:preformatted --></p>
+
+<h3>Extra</h3>
+<pre class="wp-block-code"><code>du -sh $pwd</code></pre>
+<p>After a <code>wget -pHk</code> (in an empty directory), use <code>du -sh $pwd</code> to see the size of your website.  I've found this to be a good statistic to keep track of for UX/mobile purposes.  Though there's a lot to consider whether it's CSS, JS, or other and a large website doesn't necessarily mean it's slow.</p>
+

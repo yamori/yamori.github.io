@@ -1,0 +1,402 @@
+---
+layout: post
+title: Node.js Web App Deployed to AWS Fargate w/ Auto-Scaling
+date: 2020-11-19 11:59:44.000000000 -05:00
+type: post
+parent_id: '0'
+published: true
+password: ''
+status: publish
+categories:
+- AWS
+- CLI
+tags:
+- docker
+- fargate
+- node.js
+meta:
+  _last_editor_used_jetpack: block-editor
+  _thumbnail_id: '233'
+  _publicize_job_id: '51250439326'
+  timeline_notification: '1605805188'
+permalink: "/2020/11/19/node-js-web-app-deployed-to-aws-fargate-w-auto-scaling/"
+---
+
+<p><strong>TL/DR:</strong> I present a detailed how-to for deploying a (hello world) Node.js web application (in container image form) onto <a href="https://aws.amazon.com/about-aws/whats-new/2017/11/introducing-aws-fargate-a-technology-to-run-containers-without-managing-infrastructure/">AWS Fargate</a> with auto-scaling.  This could be useful for the start of your project and then add subsequent layers for your purposes, or bits and pieces of this how-to could help solve a particular problem you're facing.</p>
+
+<h2>Motivation and Background</h2>
+
+
+<p>It is not enough to be able to write software.&nbsp; One must also be able to deploy.&nbsp; I’m reminded of the Steve Jobs quote, <a href="https://www.creativethinkinghub.com/steve-jobs-was-right-real-artists-ship/">“real artists ship.”</a>&nbsp; Even if you wrote the next killer social media website, it means nothing unless you can get it out the door, hosted, and in a stable (and scalable!) production environment.&nbsp; This post is an extracted walk-through of how I used the new AWS service Fargate to host a side project.</p>
+
+
+<p>What is <a href="https://aws.amazon.com/fargate/">Fargate</a>?&nbsp; It’s a generalized container orchestration service.&nbsp; “Generalized” here means that AWS has taken care of the underlying infrastructure usually associated with the creation of a ‘cluster’ (<a href="https://thenewstack.io/aws-fargate-through-the-lens-of-kubernetes/">in the kubernetes sense</a>) of computing resources.&nbsp; Bring your own container (the portable form of your application) and through configuration in the AWS console the application can be deployed into an auto scaling cluster, with integrations for Application Load Balancing, Certificate Management (ACM) for HTTPS, and DNS (Route 53).&nbsp; And what’s really nice is the container can be given an IAM role to call other authorized AWS Services.</p>
+
+
+<p>Here’s the user story for this article, to help bridge the developer and product owner / business gap:</p>
+
+<p><!-- wp:quote --></p>
+<blockquote class="wp-block-quote"><p><strong>As an</strong> application/DevOps engineer, <strong>I want</strong> to deploy my containerized application to an orchestration service (AWS Fargate), <strong>so that</strong> I can avoid the headaches and complexity of provisioning low level services (networking, virtual machines, kubernetes) and also gain auto scalability for my production/other environment.</p>
+<p><cite>- an application/DevOps engineer</cite></p></blockquote>
+<p><!-- /wp:quote --></p>
+<p><!-- wp:heading --></p>
+<h2>The Big Picture</h2>
+
+
+<p>From the Node.js source all the way to a live app, here's how the pieces fit together in one picture.  (The draw.io file is included in <a href="https://github.com/yamori/nodejs_hello_world_dockered">my github repo</a>.)</p>
+
+<p><!-- wp:image {"id":225,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/big-picture-fargate-demo.png?w=809" alt="" class="wp-image-225" /><br />
+<figcaption>Fig. 1: Node.js app, Image Repository, Fargate, &amp; ALB</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+<p><!-- wp:heading --></p>
+<h2>Node.JS Web App</h2>
+
+
+<p>A very basic 'hello world' app can be pulled from <a href="https://github.com/yamori/nodejs_hello_world_dockered">my github repo</a>:</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>git clone \
+https://github.com/yamor/nodejs_hello_world_dockered.git &amp;&amp; \
+cd nodejs_hello_world_dockered &amp;&amp; \
+npm install
+
+# Give it a go and run
+npm start
+# ... then access at localhost:3000</code></pre>
+<p><!-- /wp:code --></p>
+<p><!-- wp:image {"id":229,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/screen-shot-2020-11-18-at-3.27.44-pm.png?w=619" alt="" class="wp-image-229" /><br />
+<figcaption>Fig. 2: Node.js application up and running</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>It's a very basic application:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li>Built from <code>npx express-generator</code></li>
+<li>Changed the <code>routes/index.js </code>‘title’ variable to ‘nodejs_hello_world_dockered’</li>
+<li>Added a <code>Dockerfile</code>, which we’ll walk through now...</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:heading --></p>
+<h2>Dockerfile</h2>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ cat Dockerfile 
+ FROM node:12.18.2-alpine3.9
+ WORKDIR /usr/app
+ COPY . .
+ RUN npm install --quiet
+ RUN npm install pm2 -g
+ EXPOSE 3000
+ CMD &#091;"pm2-runtime", "start", "./bin/www", "--name", "nodejs_hello_world_dockered"]</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>Some explanation:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li>The <code>COPY</code> command is copying all the Node.js source into the container</li>
+<li><code><a href="https://pm2.keymetrics.io/">pm2</a></code> is installed for process management, reload capabilities, and it’s nice for production purposes adding a layer on top of the core Node.js code, and not necessary for small development efforts.&nbsp; But importantly, the container is using <code>pm2-runtime</code> which <a href="https://stackoverflow.com/questions/53962776/whats-the-difference-between-pm2-and-pm2-runtime">is needed to keep a container alive</a>.</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:heading --></p>
+<h2>Docker Commands</h2>
+
+
+<p><strong>Assumption</strong>: docker is installed and running.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ docker -v
+Docker version 19.03.6-ce, build 369ce74</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>Docker build, run then a <code>curl</code> to test.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code><code># this command builds the image that is ultimately 
+# deployed to fargate</code>
+docker build -t nodejs_hello_world_dockered . 
+
+docker run -d -p 3000:3000 nodejs_hello_world_dockered
+
+$ curl localhost:3000
+&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;head&gt;&lt;title&gt;nodejs_hello_world_dockered&lt;/title&gt;&lt;link rel="stylesheet" href="/stylesheets/style.css"&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;nodejs_hello_world_dockered&lt;/h1&gt;&lt;p&gt;Welcome to nodejs_hello_world_dockered&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</code></pre>
+<p><!-- /wp:code --></p>
+
+<p>When done, kill the running container but keep the image.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code><code># kills all running containers</code>
+docker container kill $(docker ps -q)
+
+<code># you should see our nodejs_hello_world_dockered</code>
+docker images</code></pre>
+<p><!-- /wp:code --></p>
+<p><!-- wp:heading --></p>
+<h2>Push the Image to a Container Registry</h2>
+
+
+<p><strong>Tip</strong>: Use an EC2 or Devops/pipeline within AWS (and not your local machine) for image building and pushing, as uploads from a slow or residential network can take a long time.&nbsp; Take proximity into account for your approach/strategy for large data movements.  This tip should have preceded the Docker section above, but the rationale might not have become apparent until you attempt to push an image to a registry and find that it's way too slow.</p>
+
+
+<p><strong>Assumption</strong>: the AWS CLI is installed and has an account with appropriate authorizations.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>$ aws --v
+ aws-cli/1.16.30 ...</code></pre>
+<p><!-- /wp:code --></p>
+
+<p><strong>Assumption</strong>: you have an ECR repository <a href="https://docs.aws.amazon.com/AmazonECR/latest/userguide/repository-create.html">created</a>.</p>
+
+
+<p>Now to push and it's just two commands (but preceded by an AWS ECR login), to label the image then upload it.&nbsp; Notice the label contains the repositories address.</p>
+
+<p><!-- wp:code --></p>
+<pre class="wp-block-code"><code>aws ecr get-login --no-include-email --region us-east-1 \
+| /bin/bash
+
+docker tag nodejs_hello_world_dockered:latest \
+1234567890.dkr.ecr.us-east-1.amazonaws.com/fargate_demo:latest
+
+docker push \
+1234567890.dkr.ecr.us-east-1.amazonaws.com/fargate_demo:latest</code></pre>
+<p><!-- /wp:code --></p>
+<p><!-- wp:heading --></p>
+<h2>AWS &amp; Fargate</h2>
+
+
+<p>Congratulations, at this point the application is in a nice and portable (container) format and residing in an AWS ECR repository.&nbsp; The Fargate configuration will consist of the following:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Task</strong>: defines the container configuration</li>
+<li><strong>Cluster</strong>: regional grouping of computing resource</li>
+<li><strong>Service</strong>: a scheduler which maintains the running Task(s) within the Cluster…
+<ul>
+<li>Auto-scaling will be configured at this level of the stack and will scale up the number of Tasks as configured</li>
+</ul>
+</li>
+</ul>
+<p><!-- /wp:list --></p>
+
+<p>The remaining AWS service is a Load Balancer which is separate from Fargate.  It will be described later as it exposes the application to the greater web.</p>
+
+<h2>Task Definition</h2>
+
+
+<p>Access the AWS Console &gt; (ECS) Elastic Container Service &gt; (left side menu) Task Definitions &gt; click ‘Create new Task Definition’.  On the next screen click ‘Fargate’ and then ‘Next Step’.</p>
+
+<p><!-- wp:image {"id":192,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/004.png?w=887" alt="" class="wp-image-192" /><br />
+<figcaption>Fig. 3: Fargate launch types</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>On the next screen, fill in the following:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Name</strong>: I have called it ‘fargate-demo-task-definition’</li>
+<li><strong>Task Role</strong>: this can be left as ‘none’, but I can’t stress enough how versatile this is.&nbsp; If your Node.js app needs to make call to DynamoDB, Simple Email Service, or any other Amazon service, you can enable it here.&nbsp; Using the node package <code><a href="https://www.npmjs.com/package/aws-sdk">aws-sdk</a></code> will <a href="https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html">automagically</a> query a resource URI at runtime to gain credentials, thus granting authorizations to your app for the role specified.&nbsp; This is very cool.</li>
+<li><strong>Task Execution IAM Role</strong>: leave as the default ‘ecsTaskExecutionRole’, see the image below for the succinct AWS explanation</li>
+<li><strong>Task Size</strong>: this provides a lot of room for tuning, but for this simple Node.js app I’ve plugged in 0.5GB and 0.25CPU respectively for memory and CPU allocation.</li>
+<li>Add Container:
+<ul>
+<li><strong>Container Name</strong>: I have called it ‘fargate-demo-container-image’</li>
+<li><strong>Image</strong>: Use the image URI from the end of the ‘Upload to Container Registry Section’ which was of the form ‘1234567890.dkr.ecr.us-east-1.amazonaws.com/fargate_demo:latest’</li>
+<li><strong>Memory Limits</strong>: AWS recommends 300MiB to start for web apps.</li>
+<li><strong>Port Mappings</strong>: 3000, for the container port exposing the Node.js application.</li>
+<li>...then click ‘Add’.</li>
+</ul>
+</li>
+<li><strong>Tags</strong>: always try to tag your AWS resources.</li>
+<li>...then click ‘Create’.</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:heading --></p>
+<h2>Cluster</h2>
+
+
+<p>Access AWS ECS and click ‘Create Cluster’.</p>
+
+<p><!-- wp:image {"id":195,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/001.png?w=1024" alt="" class="wp-image-195" /><br />
+<figcaption>Fig. 4: Cluster creation</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>There are a lot of different configurations for computing resources, networking, and scaling but we’ll stick with the simple case and select Networking Only.</p>
+
+<p><!-- wp:image {"id":197,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/002.png?w=675" alt="" class="wp-image-197" /><br />
+<figcaption>Fig. 5: Cluster templates</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>On the next screen, give it a name such as ‘fargate-demo-cluster’.&nbsp; Leave the ‘Create VPC’ unchecked as we can use the default one but if you’re deploying an intensive app you may want a dedicated VPC.&nbsp; Add any tags.&nbsp; (I highly recommend adding tags so you can quickly search and find associated resources for your projects.)</p>
+
+<h2>ALB - Application Load Balancer</h2>
+
+
+<p>Access the ALB service and click ‘Create’: EC2 &gt; (left side menu) Load Balancers &gt; ‘Create’ &gt; (Application Load Balancer / HTTP / HTTPS) ‘Create’.</p>
+
+
+<p>On the next configuration screen, make the following changes:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Name</strong>: I have called it ‘fargate-demo-ALB’</li>
+<li><strong>Listeners</strong>: for now we’ll keep HTTP port 80, though this target group will be deleted eventually.&nbsp; (The ALB creation wizard requires at least one target group.)
+<ul>
+<li>(Not included in this article, but once the entire system is up it’s easy to add a second listener for HTTPS port 443 while also including a certificate from <a href="https://aws.amazon.com/certificate-manager/">ACM</a>.)</li>
+</ul>
+</li>
+<li><strong>Availability Zones</strong>: choose the intended VPC and select multiple subnets which will eventually become contain the targets for this ALB</li>
+</ul>
+<p><!-- /wp:list --></p>
+
+<p>Click ‘Next: Configure Security Groups’, though an intermediary page will warn about the absence of a ‘secure listener’.&nbsp; We’ll click through this for now, but as mentioned above a 443 listener can be added in the future (but not part of this article).</p>
+
+
+<p>On the next page, we’ll ‘Create New Security Group’ and call it ‘fargate-demo-security-group’.&nbsp; Leave the default TCP port of 80, and notice that it’s open to any IP source (0.0.0.0/0, ::/0).&nbsp; Then click ‘Next: Configure Routing’.</p>
+
+
+<p>On this next page, give the target group a name (fargate-demo-target-group).&nbsp; In the screengrab below, it’s important to understand that the ALB will regularly check for the application providing an <a href="https://en.wikipedia.org/wiki/List_of_HTTP_status_codes#2xx_success">HTTP status code</a> 200 at the specified path.&nbsp; The Node.js app was created to offer a basic response on the root path so the following configuration is fine.</p>
+
+<p><!-- wp:image {"id":202,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/003.png?w=575" alt="" class="wp-image-202" /><br />
+<figcaption>Fig. 6: ALB health checks</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>Click ‘Next: Register Targets’, but we’ll skip that page and click ‘Next: Review’ then ‘Create’!</p>
+
+<h2>Service</h2>
+
+
+<p>The Fargate Service will provide an instance of the Task Definition to be run in the Cluster.  Navigate to AWS Console &gt; ECS &gt; (left side menu) Clusters &gt; then click on the Cluster we created “fargate-demo-cluster”.  And at the bottom of the screen will be a tag for ‘Services’, click the button ‘Create’.</p>
+
+<p><!-- wp:image {"id":204,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/007.png?w=639" alt="" class="wp-image-204" /><br />
+<figcaption>Fig. 7: Service creation</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>On the next page fill in the following info:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Launch type</strong>: Fargate</li>
+<li><strong>Task Definition</strong>: pull down the menu and you will see our previously configured ‘fargate-demo-task-definition’.&nbsp; As you upload more revisions to this ECR repository, the revision numbers will increase.</li>
+<li><strong>Cluster</strong>: pull down the menu and find the ‘fargate-demo-cluster’ created previously.</li>
+<li><strong>Service Name</strong>: I have entered “fargate-demo-service”</li>
+<li><strong>Number of Tasks</strong>: enter ‘1’ for this demo.&nbsp; You may wish to increase this depending on your application.</li>
+<li><strong>Tags</strong>: always be tagging!</li>
+<li>… click ‘Next Step’.</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:image {"id":206,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/008.png?w=755" alt="" class="wp-image-206" /><br />
+<figcaption>Fig. 8: Service configuration details</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>On the next page, edit the following:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Cluster VPC + Subnets</strong>: It’s important to select your target VPC here, which will probably be your default.  But it needs to be the same as where the ALB was created earlier in this article, also select the same subnets.</li>
+<li><strong>Security Groups</strong>: click ‘Edit’ and add a Custom TCP with port 3000, and then delete the HTTP with port 80 (as this won’t be used).  The 3000 corresponds to the container's externalized port.
+<ul>
+<li>(See Figure 9 below.)</li>
+<li>… click “Save”</li>
+</ul>
+</li>
+<li><strong>Load Balancer Type</strong>: select the radio button for “Application Load Balancer”, which will then display a pulldown where we can select the “fargate-demo-ALB” we had created earlier.</li>
+<li><strong>Container to Load Balance</strong>: pull down this menu to select the “fargate-demo-container-image” and click “Add to Load Balancer” and this will change the wizard’s form.
+<ul>
+<li>(See Figure 10 below.)</li>
+</ul>
+</li>
+<li>In the updated form, modify the following:
+<ul>
+<li><strong>Production Listener Port</strong>: change to 80:HTTP, this is the listener originally created during ALB creation.</li>
+<li><strong>Path Pattern &amp; Execution Order</strong>: set to ‘<code>/</code>’ and ‘<code>1</code>’ respectively, this will enable the ALB to forward base path requests to the application.</li>
+<li><strong>Health check path</strong>: also set to ‘<code>/</code>’, to ensure the Fargate Service doesn’t incorrectly infer that your app needs to be restarted.</li>
+</ul>
+</li>
+<li>… click “Next Step”</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:image {"id":209,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/009.png?w=905" alt="" class="wp-image-209" /><br />
+<figcaption>Fig. 9: Creating the Security Group</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+<p><!-- wp:image {"id":211,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/010a.png?w=826" alt="" class="wp-image-211" /><br />
+<figcaption>Fig. 10: Container for load balancing</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>Now the Set Auto Scaling screen is presented.&nbsp; This can be bypassed by selecting “Do not adjust” in the first option, but I've described a minimal scaling configuration below:</p>
+
+<p><!-- wp:list --></p>
+<ul>
+<li><strong>Minimum, Desired &amp; Maximum number of tasks</strong>: I have set as ‘1’, ‘1’ and ‘3’ respectively.  Self explanatory, and configure as your app requires.</li>
+<li><strong>IAM Role</strong>: select ‘Create new Role’</li>
+<li>Automatic Task Scaling Policy
+<ul>
+<li><strong>Policy Name</strong>: I have named it ‘fargate-demo-auto-scaling-policy’</li>
+<li><strong>ECS Service Metric &amp; Target Value</strong>: there are three options here, I have had best experience with sticking with ‘ECSServiceAverageCPUUtilization’ set to 75%</li>
+<li>(See image below.)</li>
+</ul>
+</li>
+<li>… click “Next Step”</li>
+<li>Review the final configuration and click “Create Service”</li>
+</ul>
+<p><!-- /wp:list --></p>
+<p><!-- wp:image {"id":214,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/013a.png?w=900" alt="" class="wp-image-214" /><br />
+<figcaption>Fig. 11: Number of tasks for scaling</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+<p><!-- wp:image {"id":216,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/013b.png?w=891" alt="" class="wp-image-216" /><br />
+<figcaption>Fig. 12: Scaling policy</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>In the page to view the Service, after a few minutes the Task will be listed as Running!</p>
+
+<p><!-- wp:image {"id":218,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/014.png?w=1024" alt="" class="wp-image-218" /><br />
+<figcaption>Fig. 13: A task with status RUNNING</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>Go back to the AWS Console &gt; EC2 &gt; Load Balancers.&nbsp; In the “fargate-demo-ALB”, grab the DNS Name.</p>
+
+<p><!-- wp:image {"id":219,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/015.png?w=1024" alt="" class="wp-image-219" /><br />
+<figcaption>Fig. 14: Grab the DNS name from the ALB</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+
+<p>Plug it into your browser and voila, it's the same hello world app from before we even containerized it.</p>
+
+<p><!-- wp:image {"id":221,"sizeSlug":"large","linkDestination":"none"} --></p>
+<figure class="wp-block-image size-large"><img src="{{ site.baseurl }}/assets/2020/11/016.png?w=694" alt="" class="wp-image-221" /><br />
+<figcaption>Fig. 15: ALB through to Fargate and the application running</figcaption>
+</figure>
+<p><!-- /wp:image --></p>
+<p><!-- wp:heading --></p>
+<h2>Final Thoughts and Next Steps</h2>
+
+
+<p>Note that this is only HTTP, your browser will warn that it’s insecure.  It’s easy to add a second ALB listener on port 443 and at the same time bring in a certificate from ACM.  Then point your Rt53 to the ALB (via alias) and you’ll have your app securely offered over HTTPS!</p>
+
