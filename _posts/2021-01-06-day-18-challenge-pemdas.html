@@ -13,7 +13,7 @@ tags:
 - Programming
 - Coding
 meta:
-permalink: "/2020/01/06/advent-of-code-challenge-18/"
+permalink: "/2021/01/06/advent-of-code-challenge-18/"
 ---
 
 <p>As I had written in a <a href="/2020/12/03/advent-of-code-challenge/">previous blog post</a>, I participated in the <a href="https://adventofcode.com/">Advent of Code</a>, 25 programming problems to help improve my skills.  I maintained really good momentum through day 20 before holiday activities forced me to pause.  (Bonus: I have 5 really solid problems to play with for the next month.)</p>
@@ -22,7 +22,7 @@ permalink: "/2020/01/06/advent-of-code-challenge-18/"
 
 <p>I particularly enjoyed problem <a href="https://adventofcode.com/2020/day/18">Day 18</a>.  Perhaps you remember your <a href="https://www.studypug.com/basic-math-help/order-of-operations-pemdas">PEMDAS</a> (order of arithmetic operations) from junior high.  The Day 18 problem jumbled the notion of PEMDAS and asked to evalute expressions if operations were evaluated "strictly left to right" or "addition comes before multiplication."  (<a href="https://literarydevices.net/the-horror-the-horror/">The horror</a>...)</p>
 
-<p><a href="https://github.com/yamori/advent_of_code_2020/blob/main/day18/problem2.js">My solution</a> involved mapping the 'depth' of an expression wrt parentheses, then building a method to do the custom expression evaluation.  Wrapping the two in iteration, I could then slice, divide, and conquer the expression to obtain the final result.  Here's an example of an expression, where the updated depth map is followed by the sliced expression selected for evaluation and finally replaced.  This keeps drilling down until the enture expression has been evaluated:</p>
+<p><a href="https://github.com/yamori/advent_of_code_2020/blob/main/day18/problem2.js">My solution</a> involved mapping the 'depth' of an expression wrt parentheses, then building a method to do the custom expression evaluation.  Wrapping the two in iteration, I could then slice, divide, and conquer the expression to obtain the final result.  Here's an example of an expression, where the updated depth map is followed by the sliced expression selected for evaluation and finally replaced.  This keeps drilling down until the entire expression has been evaluated:</p>
 
 <pre class="wp-block-code"><code>### addition before multiplication ###
 
@@ -56,6 +56,6 @@ line_value: 17275
 <p>How did my colleagues approach this?</p>
 
 <ul>
-    <li><a href="https://davidlozzi.com/2020/12/18/advent-of-code-day-18/">David</a> - used a clever regex to find the 'deepest' pair of parentheses, then evaluated the contained expression, and repeate as long as there was a '(' character remaining in the expression.</li>
+    <li><a href="https://davidlozzi.com/2020/12/18/advent-of-code-day-18/">David</a> - used a clever regex to find the 'deepest' pair of parentheses, then evaluated the contained expression, and repeat as long as there was a '(' character remaining in the expression.</li>
     <li><a href="https://github.com/wwnjp/AdventOfCode2020/blob/main/18.js">Josh</a> - employed a similar regex recognition, but wrapped his solution in a very tidy `map()` for an almost minified look.  By using less memory, Josh is minimizing his electricity consumption and saving the environment!</li>
 </ul>
